@@ -1,0 +1,88 @@
+/* Base styles */
+body, html {
+  height: 100%;
+  margin: 0;
+}
+
+/* Header */
+header {
+  height: 10%;
+  background-color: #ffd700;
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  font-weight: bold;
+}
+
+/* Footer */
+footer {
+  height: 5%;
+  background-color: #333;
+  color: white;
+  text-align: center;
+  padding-top: 15px;
+}
+
+/* Main content */
+main {
+  height: 85%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Content area */
+.content-area {
+  flex: 1;
+  display: flex;
+  height: 100%;
+}
+
+/* Panels */
+.left-panel {
+  width: 20%;
+  background: #f8f9fa;
+  border-right: 1px solid #ddd;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.center-panel {
+  width: 60%;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.right-panel {
+  width: 20%;
+  background: #f8f9fa;
+  border-left: 1px solid #ddd;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+/* Menu links */
+.menu a {
+  margin: 0 10px;
+  cursor: pointer;
+  color: #000;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.menu a:hover {
+  text-decoration: underline;
+}
+
+/* Marquee */
+marquee {
+  color: #007bff;
+  font-weight: bold;
+}
+
+/* Iframe */
+iframe {
+  width: 100%;
+  border: none;
+}
