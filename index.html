@@ -109,13 +109,13 @@
         html += '</ul>';
         document.getElementById('bookingList').innerHTML = html;
       } catch (err) {
-        console.error(err);
         document.getElementById('bookingList').innerHTML = '<p class="text-danger">Unable to load booking info</p>';
+        console.error(err);
       }
     }
 
     loadBookings();
-    setInterval(loadBookings, 10000); // refresh every 5 sec
+    setInterval(loadBookings, 30000); // refresh every 30 sec
   </script>
 </body>
 </html>
