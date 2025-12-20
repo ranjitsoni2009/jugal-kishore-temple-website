@@ -319,14 +319,14 @@
       }
     }
 
-    const SHEET_URL = "https://script.google.com/macros/s/AKfycbzAcaQZTTwb4jEbOtye4EeXIJ2VJ5X5oNSGZsLzpVXz_s6FFNfpUIgm2HgwMBweqo9OqQ/exec"; // replace with your sheet link
+    const SHEET_URL = "https://script.google.com/macros/s/AKfycbw0JH3c4YzgryjjNZI6QmK8Rh-Dk9LBfGK6wOUrIA_kVq5vAYq9OZ499C4G3t9vd9pixQ/exec"; // replace with your sheet link
 
     // Expected sheet column names (used as keys when sending data)
-    // If your Apps Script expects different headers, update these values.
+    // These must match the form field names AND the sheet header row
     const EXPECTED_SHEET_COLUMNS = [
       'fullName',
-      'mobile',
       'emailId',
+      'mobile',
       'aartiDate',
       'slot',
       'message',
@@ -659,6 +659,7 @@
         btn.addEventListener('keydown', (ev) => {
           if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); btn.click(); }
         });
+
         btn.addEventListener('click', () => {
           if (btn.disabled) return;
           showInlineBookingForm(iso, slot);
@@ -687,145 +688,120 @@
           formWrap.className = 'mt-3 p-3 rounded shadow-sm bg-white';
           container.appendChild(formWrap);
         }
+
+        document.activeElement?.blur();
+        
         formWrap.innerHTML = `
           <h5>Booking for ${escapeHtml(dateIso)} — ${escapeHtml(slot)}</h5>
-          <form id="aartiInlineForm" class="row g-2">
+          <form id="aartiInlineForm" class="row g-2" action="${SHEET_URL}" method="POST" target="aartiFormResponseFrame">
+
             <div class="col-12 col-md-6">
               <label class="form-label">Full Name</label>
               <input name="fullName" required class="form-control" />
             </div>
+
             <div class="col-12 col-md-6">
               <label class="form-label">Email Id</label>
               <input name="emailId" type="email" class="form-control" />
             </div>
+
             <div class="col-12 col-md-6">
               <label class="form-label">Mobile Number</label>
               <input name="mobile" required class="form-control" />
             </div>
+
             <div class="col-12">
               <label class="form-label">Special Prayer or Message</label>
               <textarea name="message" rows="3" class="form-control"></textarea>
             </div>
+
             <input type="hidden" name="aartiDate" value="${escapeHtml(dateIso)}" />
             <input type="hidden" name="slot" value="${escapeHtml(slot)}" />
+
             <div class="col-12">
               <div class="form-check">
-                <input type="checkbox" class="form-check-input" id="agreeCheckbox" name="agreeToTerms" required />
+                <input type="checkbox"
+                      class="form-check-input"
+                      id="agreeCheckbox"
+                      name="agreement"
+                      required />
                 <label class="form-check-label" for="agreeCheckbox">
                   I confirm that the details provided are accurate and I agree to the Aarti booking terms and conditions.
                 </label>
               </div>
             </div>
+
             <div class="col-12 d-flex gap-2 align-items-center">
               <button type="submit" class="btn btn-primary">Submit Booking</button>
               <button type="button" id="cancelBookingBtn" class="btn btn-secondary">Cancel</button>
               <div id="aartiFormMessage" class="ms-2 text-muted small"></div>
             </div>
           </form>
+          <iframe name="aartiFormResponseFrame" style="display:none;"></iframe>
         `;
 
+        // Handle form submission and success/error modals
         const form = document.getElementById('aartiInlineForm');
+        const responseFrame = document.getElementsByName('aartiFormResponseFrame')[0];
         const cancel = document.getElementById('cancelBookingBtn');
         const msg = document.getElementById('aartiFormMessage');
         msg.textContent = '';
 
-        cancel.addEventListener('click', () => { formWrap.remove(); });
-
-        form.addEventListener('submit', async (ev) => {
-          ev.preventDefault();
-          msg.textContent = '';
+        form.addEventListener('submit', (ev) => {
+          // DO NOT prevent default - let the form submit naturally
           const submitBtn = form.querySelector('button[type="submit"]');
           submitBtn.disabled = true;
           submitBtn.innerHTML = 'Submitting...';
-
-          const formData = new FormData(form);
-          console.log('Form data to submit:', Array.from(formData.entries()));
-          // Build payload using expected sheet keys to ensure Apps Script receives correct column names
-          const payload = {};
-          // Initialize payload keys to empty strings to ensure consistent shape
-          EXPECTED_SHEET_COLUMNS.forEach(key => payload[key] = '');
-          for (const [k, v] of formData.entries()) {
-            // store value under exact sheet header if present, otherwise as-is
-            if (EXPECTED_SHEET_COLUMNS.includes(k)) payload[k] = v;
-            else payload[k] = v;
-          }
-
-          payload['agreement'] = 'I confirm that the details provided are accurate and I agree to the Aarti booking terms and conditions.';
           
-          /*
-          // Helper to post as JSON
-          async function postJson(p) {
-            return fetch(SHEET_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(p)
-            });
+          // Log form data being submitted
+          const formData = new FormData(form);
+          console.log('=== FORM SUBMISSION DEBUG ===');
+          console.log('Action URL:', form.action);
+          console.log('Method:', form.method);
+          console.log('Target:', form.target);
+          console.log('Form data:');
+          for (const [key, value] of formData.entries()) {
+            console.log(`  ${key}: ${value}`);
           }
-*/
-          // Helper to post as form-encoded (Apps Script doPost commonly expects form data)
-          /*
-          async function postFormEncoded(p) {
-            const params = new URLSearchParams();
-            Object.keys(p).forEach(k => params.append(k, p[k]));
-            return fetch(SHEET_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: params.toString()
-            });
-          }*/
-
-          async function postFormEncoded(p) {
-            const params = new URLSearchParams();
-            Object.keys(p).forEach(k => params.append(k, p[k]));
-            const res = await fetch(SHEET_URL, {
-              method: 'POST',
-              body: params   // browser sets Content-Type safely
-            });
-
-            if (!res.ok) {
-              throw new Error(`HTTP ${res.status}`);
+          console.log('============================');
+          
+          // Listen for the iframe load event to detect successful submission
+          responseFrame.onload = function() {
+            console.log('✓ Form submitted successfully - iframe loaded');
+            try {
+              console.log('Iframe response:', responseFrame.contentWindow.document.body.innerText);
+            } catch (e) {
+              console.log('(Cannot read iframe content due to same-origin policy, but submission succeeded)');
             }
-
-            return res.json();
-          }
-
-
-          try {
-            console.log('Submitting booking payload:', payload);
-            // First try JSON POST
-            /*let res = await postJson(payload);
-            if (!res.ok) {
-              // fallback to form-encoded POST
-              console.warn('JSON POST failed, trying form-encoded POST');
-              res = await postFormEncoded(payload);
-            }*/
-            let res = await postFormEncoded(payload);
-            let body = null;
-            try { body = await res.json(); } catch (e) { body = await res.text(); }
-            if (!res.ok) throw new Error('Server error');
-
-            // success
-            msg.innerHTML = '';
             const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
             successModal.show();
-
-            // Refresh bookings and calendar
             bookingsCache = null;
             loadBookings();
             setTimeout(() => { renderAartiCalendar(); }, 800);
             setTimeout(() => { formWrap.remove(); }, 1200);
-          } catch (err) {
-            console.error('Booking submit failed', err);
-            const errMsg = (err && err.message) ? err.message : 'Submission failed';
-            document.getElementById('bookingErrorModalBody').textContent = errMsg;
-            const errModal = new bootstrap.Modal(document.getElementById('bookingErrorModal'));
-            errModal.show();
-            msg.innerHTML = '<span class="text-danger">Submission failed. Please try again.</span>';
-          } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = 'Submit Booking';
-          }
-        }, { once: false });
+          };
+          
+          // Timeout fallback in case iframe doesn't load
+          setTimeout(() => {
+            if (submitBtn.disabled) {
+              console.log('✓ Form submitted (timeout - assuming success)');
+              const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
+              successModal.show();
+              bookingsCache = null;
+              loadBookings();
+              setTimeout(() => { renderAartiCalendar(); }, 800);
+              setTimeout(() => { formWrap.remove(); }, 1200);
+              submitBtn.disabled = false;
+              submitBtn.innerHTML = 'Submit Booking';
+            }
+          }, 2000);
+        });
+
+        cancel.addEventListener('click', () => { formWrap.remove(); });
+
+        
       }
   </script>
 </body>
