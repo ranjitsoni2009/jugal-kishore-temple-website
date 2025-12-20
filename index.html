@@ -203,10 +203,8 @@
 
         <div id="aarti" class="section" style="display:none;">
           <h3 class="mb-3">Aarti Timings & Booking</h3>
-          <p class="text-muted">Please book your preferred slot from the form below.</p>
-          <div class="ratio ratio-16x9 shadow-sm rounded">
-            <iframe src="https://docs.google.com/forms/d/e/1FAIpQLSeGYoW-uWIVI6-pHM1y3hCXQkYqicwu0tZXNJsCecOiu4UCEg/viewform?usp=dialog" height="100%"></iframe>
-          </div>
+          <p class="text-muted">Please select a date and slot below and fill the booking form that appears.</p>
+          <div id="aartiPlaceholder"></div>
         </div>
 
         <div id="gallery" class="gallery-container section" style="display:block;">
@@ -255,20 +253,7 @@
           </div>
         </div>
 
-        <!-- Aarti Form Modal (embedded) -->
-        <div class="modal fade" id="aartiFormModal" tabindex="-1" aria-hidden="true">
-          <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h5 class="modal-title">Aarti Booking Form</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body p-0" style="min-height:60vh">
-                <iframe id="aartiFormIframe" src="about:blank" style="width:100%;height:60vh;border:0;" title="Aarti Booking Form"></iframe>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Inline booking form will be rendered into the calendar placeholder; modal removed -->
 
         <div id="contact" class="section" style="display:none;">
           <h3 class="mb-2">Contact & Location</h3>
@@ -293,6 +278,33 @@
   <footer class="site-footer">
     © 2025 Shree Jugal Kishore Ji Temple | District : Panna | Designed for Social Service by Ranjit Soni & Pallav Khare 🙏
   </footer>
+  <!-- Booking success modal -->
+  <div class="modal fade" id="bookingSuccessModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-body text-center py-4">
+          <h5 class="mb-2">Booking Confirmed</h5>
+          <p class="small text-muted">Thank you — your booking has been recorded.</p>
+          <button class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Booking error modal -->
+  <div class="modal fade" id="bookingErrorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-body text-center py-3">
+          <h5 class="mb-2 text-danger">Submission Failed</h5>
+          <p id="bookingErrorModalBody" class="small text-muted">There was an error submitting your booking.</p>
+          <div class="d-flex justify-content-center gap-2 mt-2">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   </div>
   <!-- Bootstrap JS (single include) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -308,6 +320,19 @@
     }
 
     const SHEET_URL = "https://script.google.com/macros/s/AKfycbzAcaQZTTwb4jEbOtye4EeXIJ2VJ5X5oNSGZsLzpVXz_s6FFNfpUIgm2HgwMBweqo9OqQ/exec"; // replace with your sheet link
+
+    // Expected sheet column names (used as keys when sending data)
+    // If your Apps Script expects different headers, update these values.
+    const EXPECTED_SHEET_COLUMNS = [
+      'Full Name',
+      'Email ID',
+      'Mobile Number',
+      'Date of Aarti',
+      'Slot',
+      'Special Prayer or Message',
+      'I agree'
+    ];
+    console.log('Form will submit these sheet columns:', EXPECTED_SHEET_COLUMNS.join(', '));
 
     console.log("Fetching booking data from:", SHEET_URL);
     async function loadBookings() {
@@ -486,6 +511,7 @@
       try {
         const resp = await fetch(SHEET_URL + '?_=' + Date.now());
         const data = await resp.json();
+        console.log('Fetched bookings for calendar:', data);
         const counts = {}; // counts[iso] = { Morning: n, Evening: n }
         data.forEach(row => {
           const rawDate = row['Date of Aarti'] || row['Date'] || row['Aarti Date'] || '';
@@ -548,7 +574,9 @@
         container = document.createElement('div');
         container.id = 'aartiCalendar';
         container.className = 'mb-3';
-        aartiEl.insertBefore(container, aartiEl.querySelector('.ratio'));
+        const placeholder = aartiEl.querySelector('#aartiPlaceholder');
+        if (placeholder) placeholder.appendChild(container);
+        else aartiEl.appendChild(container);
       }
       // build header with legend
       container.innerHTML = `
@@ -629,14 +657,145 @@
         });
         btn.addEventListener('click', () => {
           if (btn.disabled) return;
-          const url = buildPrefillUrl(iso, slot);
-          openBookingForm(url);
+          showInlineBookingForm(iso, slot);
         });
       });
 
       const statusEl = document.getElementById('aartiStatus');
       statusEl.textContent = `Showing next ${AARTI_WINDOW_DAYS} days. Slots with ${MAX_PER_SLOT}+ bookings are disabled.`;
     }
+
+      // Render an inline HTML booking form beneath the calendar
+      function showInlineBookingForm(dateIso, slot) {
+        const placeholder = document.getElementById('aartiPlaceholder');
+        if (!placeholder) return;
+        // ensure calendar container exists (renderAartiCalendar creates #aartiCalendar)
+        let container = document.getElementById('aartiCalendar');
+        if (!container) {
+          renderAartiCalendar();
+          container = document.getElementById('aartiCalendar');
+        }
+        // create or replace form container
+        let formWrap = document.getElementById('aartiInlineFormContainer');
+        if (!formWrap) {
+          formWrap = document.createElement('div');
+          formWrap.id = 'aartiInlineFormContainer';
+          formWrap.className = 'mt-3 p-3 rounded shadow-sm bg-white';
+          container.appendChild(formWrap);
+        }
+        formWrap.innerHTML = `
+          <h5>Booking for ${escapeHtml(dateIso)} — ${escapeHtml(slot)}</h5>
+          <form id="aartiInlineForm" class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Full Name</label>
+              <input name="Full Name" required class="form-control" />
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Email</label>
+              <input name="Email" type="email" class="form-control" />
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Mobile</label>
+              <input name="Mobile" required class="form-control" />
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Number of People</label>
+              <input name="Quantity" type="number" min="1" value="1" class="form-control" />
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes / Address</label>
+              <textarea name="Notes" rows="3" class="form-control"></textarea>
+            </div>
+            <div class="col-12 d-flex gap-2 align-items-center">
+              <input type="hidden" name="Date of Aarti" value="${escapeHtml(dateIso)}" />
+              <input type="hidden" name="Slot" value="${escapeHtml(slot)}" />
+              <button type="submit" class="btn btn-primary">Submit Booking</button>
+              <button type="button" id="cancelBookingBtn" class="btn btn-secondary">Cancel</button>
+              <div id="aartiFormMessage" class="ms-2 text-muted small"></div>
+            </div>
+          </form>
+        `;
+
+        const form = document.getElementById('aartiInlineForm');
+        const cancel = document.getElementById('cancelBookingBtn');
+        const msg = document.getElementById('aartiFormMessage');
+        msg.textContent = '';
+
+        cancel.addEventListener('click', () => { formWrap.remove(); });
+
+        form.addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          msg.textContent = '';
+          const submitBtn = form.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = 'Submitting...';
+
+          const formData = new FormData(form);
+          // Build payload using expected sheet keys to ensure Apps Script receives correct column names
+          const payload = {};
+          // Initialize payload keys to empty strings to ensure consistent shape
+          EXPECTED_SHEET_COLUMNS.forEach(key => payload[key] = '');
+          for (const [k, v] of formData.entries()) {
+            // store value under exact sheet header if present, otherwise as-is
+            if (EXPECTED_SHEET_COLUMNS.includes(k)) payload[k] = v;
+            else payload[k] = v;
+          }
+
+          // Helper to post as JSON
+          async function postJson(p) {
+            return fetch(SHEET_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(p)
+            });
+          }
+
+          // Helper to post as form-encoded (Apps Script doPost commonly expects form data)
+          async function postFormEncoded(p) {
+            const params = new URLSearchParams();
+            Object.keys(p).forEach(k => params.append(k, p[k]));
+            return fetch(SHEET_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: params.toString()
+            });
+          }
+
+          try {
+            // First try JSON POST
+            let res = await postJson(payload);
+            if (!res.ok) {
+              // fallback to form-encoded POST
+              console.warn('JSON POST failed, trying form-encoded POST');
+              res = await postFormEncoded(payload);
+            }
+            let body = null;
+            try { body = await res.json(); } catch (e) { body = await res.text(); }
+            if (!res.ok) throw new Error('Server error');
+
+            // success
+            msg.innerHTML = '';
+            const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
+            successModal.show();
+
+            // Refresh bookings and calendar
+            bookingsCache = null;
+            loadBookings();
+            setTimeout(() => { renderAartiCalendar(); }, 800);
+            setTimeout(() => { formWrap.remove(); }, 1200);
+          } catch (err) {
+            console.error('Booking submit failed', err);
+            const errMsg = (err && err.message) ? err.message : 'Submission failed';
+            document.getElementById('bookingErrorModalBody').textContent = errMsg;
+            const errModal = new bootstrap.Modal(document.getElementById('bookingErrorModal'));
+            errModal.show();
+            msg.innerHTML = '<span class="text-danger">Submission failed. Please try again.</span>';
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Submit Booking';
+          }
+        }, { once: false });
+      }
   </script>
 </body>
 </html>
