@@ -122,6 +122,20 @@
     @media (max-width: 991px) {
       .content-area { flex-direction:column; }
     }
+    /* Aarti calendar styles */
+    #aartiCalendar { position: relative; }
+    .aarti-spinner-overlay {
+      position: absolute; inset: 0; display:flex; align-items:center; justify-content:center;
+      background: rgba(255,255,255,0.8); z-index: 30; border-radius: 6px;
+    }
+    .aarti-card-available { box-shadow: 0 1px 0 rgba(0,0,0,0.03); }
+    .aarti-status-green { border-left: 6px solid #28a745; }
+    .aarti-status-yellow { border-left: 6px solid #ffc107; }
+    .aarti-status-orange { border-left: 6px solid #fd7e14; }
+    .aarti-status-red { border-left: 6px solid #dc3545; }
+    .aarti-legend { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; }
+    .aarti-legend .key { display:flex; gap:.4rem; align-items:center; font-size:.85rem; }
+    .legend-box { width:14px; height:12px; border-radius:2px; display:inline-block; }
   </style>
 </head>
 <body>
@@ -136,7 +150,7 @@
 
       <nav class="d-none d-md-flex align-items-center" aria-label="Main navigation">
         <a class="nav-link px-3" onclick="showSection('home')">Home</a>
-        <a class="nav-link px-3" onclick="showSection('aarti')">Aarti Booking</a>
+        <a class="nav-link px-3" onclick="showSection('aarti')">Thaal Booking</a>
         <a class="nav-link px-3" onclick="showSection('gallery')">Gallery</a>
         <a class="nav-link px-3" onclick="showSection('contact')">Contact</a>
       </nav>
@@ -149,7 +163,7 @@
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="#" onclick="showSection('home')">Home</a></li>
-            <li><a class="dropdown-item" href="#" onclick="showSection('aarti')">Aarti Booking</a></li>
+            <li><a class="dropdown-item" href="#" onclick="showSection('aarti')">Thaal Booking</a></li>
             <li><a class="dropdown-item" href="#" onclick="showSection('gallery')">Gallery</a></li>
             <li><a class="dropdown-item" href="#" onclick="showSection('contact')">Contact</a></li>
           </ul>
@@ -241,6 +255,21 @@
           </div>
         </div>
 
+        <!-- Aarti Form Modal (embedded) -->
+        <div class="modal fade" id="aartiFormModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Aarti Booking Form</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body p-0" style="min-height:60vh">
+                <iframe id="aartiFormIframe" src="about:blank" style="width:100%;height:60vh;border:0;" title="Aarti Booking Form"></iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="contact" class="section" style="display:none;">
           <h3 class="mb-2">Contact & Location</h3>
           <p><strong>Address:</strong> Shree Jugal Kishore Ji Temple, Panna, Madhya Pradesh</p>
@@ -273,6 +302,9 @@
     function showSection(sectionId) {
       document.querySelectorAll('.section').forEach(sec => sec.style.display = 'none');
       document.getElementById(sectionId).style.display = 'block';
+      if (sectionId === 'aarti') {
+        renderAartiCalendar();
+      }
     }
 
     const SHEET_URL = "https://script.google.com/macros/s/AKfycbzAcaQZTTwb4jEbOtye4EeXIJ2VJ5X5oNSGZsLzpVXz_s6FFNfpUIgm2HgwMBweqo9OqQ/exec"; // replace with your sheet link
@@ -414,6 +446,197 @@
 
     refreshBtn.addEventListener('click', () => loadGallery());
     loadGallery();
+
+    // -----------------------------
+    // AARTI (THAAL) BOOKING CALENDAR
+    // -----------------------------
+    // Google Form URL to open when user picks date+slot. Replace with your form link or prefill URL.
+    const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeGYoW-uWIVI6-pHM1y3hCXQkYqicwu0tZXNJsCecOiu4UCEg/viewform";
+    const AARTI_WINDOW_DAYS = 30; // next N days
+    const MAX_PER_SLOT = 30; // capacity per slot
+
+    // If you know the Google Form 'entry.xxxxx' ids, set them here to prefill fields inside the form.
+    // Example: PREFILL_ENTRY_DATE = 'entry.1234567890', PREFILL_ENTRY_SLOT = 'entry.0987654321'
+    const PREFILL_ENTRY_DATE = null; // e.g. 'entry.123456'
+    const PREFILL_ENTRY_SLOT = null; // e.g. 'entry.987654'
+    const OPEN_FORM_IN_MODAL = true; // if true and PREFILL_ENTRY_* used, will embed form in modal; otherwise opens new tab
+
+    let bookingsCache = null;
+
+    function toISODate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function getSlotFromRow(row) {
+      const candidates = ['Slot','Aarti Slot','Time','Slot Time','Preferred Slot','Morning/Evening','Slot (Morning/Evening)','SlotSelected'];
+      for (const k of candidates) if (row[k]) return String(row[k]).trim();
+      const dField = row['Date of Aarti'] || row['Date'] || row['Aarti Date'] || '';
+      const s = String(dField);
+      if (/\b(morning|am)\b/i.test(s)) return 'Morning';
+      if (/\b(evening|pm)\b/i.test(s)) return 'Evening';
+      return null;
+    }
+
+    async function fetchBookingsForCalendar() {
+      // show spinner by resetting cache only when forced externally; cache otherwise
+      if (bookingsCache) return bookingsCache;
+      try {
+        const resp = await fetch(SHEET_URL + '?_=' + Date.now());
+        const data = await resp.json();
+        const counts = {}; // counts[iso] = { Morning: n, Evening: n }
+        data.forEach(row => {
+          const rawDate = row['Date of Aarti'] || row['Date'] || row['Aarti Date'] || '';
+          if (!rawDate) return;
+          let dt = new Date(rawDate);
+          if (isNaN(dt)) {
+            const m = rawDate.match(/(\d{1,2})[\-\/](\d{1,2})[\-\/](\d{4})/);
+            if (m) dt = new Date(`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`);
+          }
+          if (isNaN(dt)) return;
+          const iso = toISODate(dt);
+          let slot = getSlotFromRow(row) || 'Unknown';
+          if (/\b(morning|am)\b/i.test(slot)) slot = 'Morning';
+          else if (/\b(evening|pm)\b/i.test(slot)) slot = 'Evening';
+          else slot = 'Unknown';
+          counts[iso] = counts[iso] || { Morning: 0, Evening: 0, Unknown: 0 };
+          counts[iso][slot] = (counts[iso][slot] || 0) + 1;
+        });
+        bookingsCache = counts;
+        return counts;
+      } catch (err) {
+        console.error('Error fetching bookings for calendar', err);
+        bookingsCache = {};
+        return bookingsCache;
+      }
+    }
+
+    function buildPrefillUrl(dateIso, slot) {
+      // If prefill entry IDs are provided, use them
+      if (PREFILL_ENTRY_DATE && PREFILL_ENTRY_SLOT) {
+        const params = new URLSearchParams();
+        params.set(PREFILL_ENTRY_DATE, dateIso);
+        params.set(PREFILL_ENTRY_SLOT, slot);
+        // Google Forms prefill uses 'viewform?usp=pp_url&entry.x=...' or just entry params
+        return FORM_URL + '?usp=pp_url&' + params.toString();
+      }
+      // Fallback: append readable query params
+      return FORM_URL + `?date=${encodeURIComponent(dateIso)}&slot=${encodeURIComponent(slot)}`;
+    }
+
+    function openBookingForm(url) {
+      if (OPEN_FORM_IN_MODAL && PREFILL_ENTRY_DATE && PREFILL_ENTRY_SLOT) {
+        const iframe = document.getElementById('aartiFormIframe');
+        iframe.src = url;
+        const modalEl = document.getElementById('aartiFormModal');
+        const bs = new bootstrap.Modal(modalEl, { keyboard: true });
+        bs.show();
+      } else {
+        window.open(url, '_blank');
+      }
+    }
+
+    // Render a simple card grid for next 30 days with Morning/Evening buttons
+    async function renderAartiCalendar() {
+      const aartiEl = document.getElementById('aarti');
+      if (!aartiEl) return;
+      // ensure container exists
+      let container = document.getElementById('aartiCalendar');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'aartiCalendar';
+        container.className = 'mb-3';
+        aartiEl.insertBefore(container, aartiEl.querySelector('.ratio'));
+      }
+      // build header with legend
+      container.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div id="aartiStatus" class="text-muted">Loading availability...</div>
+          <div class="aarti-legend">
+            <div class="key"><span class="legend-box" style="background:#28a745"></span> Available</div>
+            <div class="key"><span class="legend-box" style="background:#ffc107"></span> Few left</div>
+            <div class="key"><span class="legend-box" style="background:#fd7e14"></span> Almost full</div>
+            <div class="key"><span class="legend-box" style="background:#dc3545"></span> Full</div>
+          </div>
+        </div>
+        <div id="aartiGrid" class="d-flex flex-wrap gap-2 position-relative"></div>
+      `;
+
+      const grid = document.getElementById('aartiGrid');
+      // show spinner overlay while loading
+      const overlay = document.createElement('div'); overlay.className = 'aarti-spinner-overlay';
+      overlay.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div><div class="mt-2 small text-muted">Checking availability...</div></div>';
+      grid.appendChild(overlay);
+
+      const counts = await fetchBookingsForCalendar();
+      const today = new Date();
+      for (let i = 0; i < AARTI_WINDOW_DAYS; i++) {
+        const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+        const iso = toISODate(d);
+        const display = d.toDateString();
+        const dayCounts = counts[iso] || { Morning: 0, Evening: 0 };
+        const total = (dayCounts.Morning || 0) + (dayCounts.Evening || 0);
+
+        // determine status class by slot availability (take max of slots)
+        const maxSlot = Math.max((dayCounts.Morning||0), (dayCounts.Evening||0));
+        let statusClass = 'aarti-status-green';
+        if (maxSlot >= MAX_PER_SLOT) statusClass = 'aarti-status-red';
+        else if (maxSlot >= Math.floor(MAX_PER_SLOT * 0.9)) statusClass = 'aarti-status-orange';
+        else if (maxSlot >= Math.floor(MAX_PER_SLOT * 0.6)) statusClass = 'aarti-status-yellow';
+
+        const card = document.createElement('div');
+        card.className = `aarti-card-available ${statusClass}`;
+        card.style.minWidth = '170px';
+        card.style.border = '1px solid rgba(0,0,0,0.06)';
+        card.style.borderRadius = '8px';
+        card.style.padding = '8px';
+        card.style.background = '#fff';
+        card.setAttribute('role', 'group');
+        card.innerHTML = `
+          <div style="font-weight:700">${escapeHtml(display)}</div>
+          <div style="font-size:0.85rem;color:#666;margin-bottom:6px">${iso}</div>
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-success aarti-slot-btn" data-date="${iso}" data-slot="Morning" aria-label="Morning slot for ${escapeHtml(display)}">Morning <small>(${dayCounts.Morning||0})</small></button>
+            <button class="btn btn-sm btn-outline-primary aarti-slot-btn" data-date="${iso}" data-slot="Evening" aria-label="Evening slot for ${escapeHtml(display)}">Evening <small>(${dayCounts.Evening||0})</small></button>
+          </div>
+        `;
+        grid.appendChild(card);
+      }
+
+      // remove overlay
+      overlay.remove();
+
+      document.querySelectorAll('.aarti-slot-btn').forEach(btn => {
+        const iso = btn.dataset.date;
+        const slot = btn.dataset.slot;
+        const d = new Date(iso + 'T00:00:00');
+        const now = new Date();
+        if (d < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+          btn.disabled = true;
+        }
+        const c = (counts[iso] && counts[iso][slot]) ? counts[iso][slot] : 0;
+        if (c >= MAX_PER_SLOT) {
+          btn.disabled = true;
+          btn.classList.remove('btn-outline-success');
+          btn.classList.remove('btn-outline-primary');
+          btn.classList.add('btn-secondary');
+        }
+        // keyboard accessibility
+        btn.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); btn.click(); }
+        });
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          const url = buildPrefillUrl(iso, slot);
+          openBookingForm(url);
+        });
+      });
+
+      const statusEl = document.getElementById('aartiStatus');
+      statusEl.textContent = `Showing next ${AARTI_WINDOW_DAYS} days. Slots with ${MAX_PER_SLOT}+ bookings are disabled.`;
+    }
   </script>
 </body>
 </html>
