@@ -268,7 +268,7 @@
 
       <!-- Right Panel -->
       <div class="right-panel col-12 col-lg-2">
-        <h5 class="booking-title">Aarti Bookings</h5>
+        <h5 class="booking-title">Thaal Booking List</h5>
         <div id="bookingList" style="overflow-y: auto;"></div>
       </div>
     </div>
@@ -324,14 +324,15 @@
     // Expected sheet column names (used as keys when sending data)
     // If your Apps Script expects different headers, update these values.
     const EXPECTED_SHEET_COLUMNS = [
-      'Full Name',
-      'Email ID',
-      'Mobile Number',
-      'Date of Aarti',
-      'Slot',
-      'Special Prayer or Message',
-      'I agree'
+      'fullName',
+      'mobile',
+      'emailId',
+      'aartiDate',
+      'slot',
+      'message',
+      'agreement'
     ];
+    
     console.log('Form will submit these sheet columns:', EXPECTED_SHEET_COLUMNS.join(', '));
 
     console.log("Fetching booking data from:", SHEET_URL);
@@ -339,16 +340,19 @@
       try {
         const res = await fetch(SHEET_URL);
         const data = await res.json();
-
+        console.log("data -->"+data);
         let html = '<ul class="list-group">';
         data.forEach(row => {
-          const name = row["Full Name"];
-          const slot = row["Date of Aarti"];
-          if (name && slot) {
+          const name = row["fullName"];
+          const date = new Date(row["aartiDate"]);
+          const formatted = date.toLocaleDateString("en-GB", {day: "2-digit", month: "short", year: "numeric"}).replace(/ /g, "-");
+          const slot = row["slot"];
+
+          if (name && formatted && slot) {
             html += `
               <li class="list-group-item d-flex justify-content-between align-items-center">
                 <span>${name}</span>
-                <span class="badge bg-primary">${slot}</span>
+                <span class="badge bg-primary">${formatted}-${slot}</span>
               </li>`;
           }
         });
@@ -470,7 +474,7 @@
     }
 
     refreshBtn.addEventListener('click', () => loadGallery());
-    loadGallery();
+    //loadGallery();
 
     // -----------------------------
     // AARTI (THAAL) BOOKING CALENDAR
@@ -496,9 +500,9 @@
     }
 
     function getSlotFromRow(row) {
-      const candidates = ['Slot','Aarti Slot','Time','Slot Time','Preferred Slot','Morning/Evening','Slot (Morning/Evening)','SlotSelected'];
+      const candidates = ['slot','Aarti Slot','Time','Slot Time','Preferred Slot','Morning/Evening','Slot (Morning/Evening)','SlotSelected'];
       for (const k of candidates) if (row[k]) return String(row[k]).trim();
-      const dField = row['Date of Aarti'] || row['Date'] || row['Aarti Date'] || '';
+      const dField = row['aartiDate'] || row['Date'] || row['Aarti Date'] || '';
       const s = String(dField);
       if (/\b(morning|am)\b/i.test(s)) return 'Morning';
       if (/\b(evening|pm)\b/i.test(s)) return 'Evening';
@@ -514,7 +518,7 @@
         console.log('Fetched bookings for calendar:', data);
         const counts = {}; // counts[iso] = { Morning: n, Evening: n }
         data.forEach(row => {
-          const rawDate = row['Date of Aarti'] || row['Date'] || row['Aarti Date'] || '';
+          const rawDate = row['aartiDate'] || row['aartiDate'] || row['aartiDate'] || '';
           if (!rawDate) return;
           let dt = new Date(rawDate);
           if (isNaN(dt)) {
@@ -688,27 +692,31 @@
           <form id="aartiInlineForm" class="row g-2">
             <div class="col-12 col-md-6">
               <label class="form-label">Full Name</label>
-              <input name="Full Name" required class="form-control" />
+              <input name="fullName" required class="form-control" />
             </div>
             <div class="col-12 col-md-6">
-              <label class="form-label">Email</label>
-              <input name="Email" type="email" class="form-control" />
+              <label class="form-label">Email Id</label>
+              <input name="emailId" type="email" class="form-control" />
             </div>
             <div class="col-12 col-md-6">
-              <label class="form-label">Mobile</label>
-              <input name="Mobile" required class="form-control" />
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Number of People</label>
-              <input name="Quantity" type="number" min="1" value="1" class="form-control" />
+              <label class="form-label">Mobile Number</label>
+              <input name="mobile" required class="form-control" />
             </div>
             <div class="col-12">
-              <label class="form-label">Notes / Address</label>
-              <textarea name="Notes" rows="3" class="form-control"></textarea>
+              <label class="form-label">Special Prayer or Message</label>
+              <textarea name="message" rows="3" class="form-control"></textarea>
+            </div>
+            <input type="hidden" name="aartiDate" value="${escapeHtml(dateIso)}" />
+            <input type="hidden" name="slot" value="${escapeHtml(slot)}" />
+            <div class="col-12">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="agreeCheckbox" name="agreeToTerms" required />
+                <label class="form-check-label" for="agreeCheckbox">
+                  I confirm that the details provided are accurate and I agree to the Aarti booking terms and conditions.
+                </label>
+              </div>
             </div>
             <div class="col-12 d-flex gap-2 align-items-center">
-              <input type="hidden" name="Date of Aarti" value="${escapeHtml(dateIso)}" />
-              <input type="hidden" name="Slot" value="${escapeHtml(slot)}" />
               <button type="submit" class="btn btn-primary">Submit Booking</button>
               <button type="button" id="cancelBookingBtn" class="btn btn-secondary">Cancel</button>
               <div id="aartiFormMessage" class="ms-2 text-muted small"></div>
@@ -731,6 +739,7 @@
           submitBtn.innerHTML = 'Submitting...';
 
           const formData = new FormData(form);
+          console.log('Form data to submit:', Array.from(formData.entries()));
           // Build payload using expected sheet keys to ensure Apps Script receives correct column names
           const payload = {};
           // Initialize payload keys to empty strings to ensure consistent shape
@@ -741,6 +750,9 @@
             else payload[k] = v;
           }
 
+          payload['agreement'] = 'I confirm that the details provided are accurate and I agree to the Aarti booking terms and conditions.';
+          
+          /*
           // Helper to post as JSON
           async function postJson(p) {
             return fetch(SHEET_URL, {
@@ -749,8 +761,9 @@
               body: JSON.stringify(p)
             });
           }
-
+*/
           // Helper to post as form-encoded (Apps Script doPost commonly expects form data)
+          /*
           async function postFormEncoded(p) {
             const params = new URLSearchParams();
             Object.keys(p).forEach(k => params.append(k, p[k]));
@@ -759,16 +772,34 @@
               headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
               body: params.toString()
             });
+          }*/
+
+          async function postFormEncoded(p) {
+            const params = new URLSearchParams();
+            Object.keys(p).forEach(k => params.append(k, p[k]));
+            const res = await fetch(SHEET_URL, {
+              method: 'POST',
+              body: params   // browser sets Content-Type safely
+            });
+
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+
+            return res.json();
           }
 
+
           try {
+            console.log('Submitting booking payload:', payload);
             // First try JSON POST
-            let res = await postJson(payload);
+            /*let res = await postJson(payload);
             if (!res.ok) {
               // fallback to form-encoded POST
               console.warn('JSON POST failed, trying form-encoded POST');
               res = await postFormEncoded(payload);
-            }
+            }*/
+            let res = await postFormEncoded(payload);
             let body = null;
             try { body = await res.json(); } catch (e) { body = await res.text(); }
             if (!res.ok) throw new Error('Server error');
