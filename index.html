@@ -345,15 +345,18 @@
         data.forEach(row => {
           const name = row["fullName"];
           const date = new Date(row["aartiDate"]);
-          const formatted = date.toLocaleDateString("en-GB", {day: "2-digit", month: "short", year: "numeric"}).replace(/ /g, "-");
-          const slot = row["slot"];
+          if (date > new Date()) {
+            // only show future bookings
+            const formatted = date.toLocaleDateString("en-GB", {day: "2-digit", month: "short", year: "numeric"}).replace(/ /g, "-");
+            const slot = row["slot"];
 
-          if (name && formatted && slot) {
-            html += `
-              <li class="list-group-item d-flex justify-content-between align-items-center">
-                <span>${name}</span>
-                <span class="badge bg-primary">${formatted}-${slot}</span>
-              </li>`;
+            if (name && formatted && slot) {
+              html += `
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  <span>${name}</span>
+                  <span class="badge bg-primary">${formatted}-${slot}</span>
+                </li>`;
+            }
           }
         });
         html += '</ul>';
@@ -604,7 +607,7 @@
 
       const counts = await fetchBookingsForCalendar();
       const today = new Date();
-      for (let i = 0; i < AARTI_WINDOW_DAYS; i++) {
+      for (let i = 1; i <= AARTI_WINDOW_DAYS; i++) {
         const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
         const iso = toISODate(d);
         const display = d.toDateString();
