@@ -383,9 +383,9 @@
       'agreement'
     ];
     
-    console.log('Form will submit these sheet columns:', EXPECTED_SHEET_COLUMNS.join(', '));
+    //console.log('Form will submit these sheet columns:', EXPECTED_SHEET_COLUMNS.join(', '));
 
-    console.log("Fetching booking data from:", APP_SCRIPT);
+    //console.log("Fetching booking data from:", APP_SCRIPT);
     async function loadBookings() {
       try {
         const res = await fetch(APP_SCRIPT);
@@ -809,100 +809,90 @@
         const msg = document.getElementById('aartiFormMessage');
         msg.textContent = '';
 
+        // Create hidden iframe for CREATE_ORDER response
+        const orderFrame = document.createElement('iframe');
+        orderFrame.name = 'orderFrame';
+        orderFrame.style.display = 'none';
+        document.body.appendChild(orderFrame);
+
         form.addEventListener('submit', (ev) => {
           ev.preventDefault();
           const submitBtn = form.querySelector('button[type="submit"]');
           submitBtn.disabled = true;
           submitBtn.innerHTML = 'Processing...';
 
-          // parse donation amount (number in INR)
           const donation = parseFloat(document.getElementById('donationAmount')?.value || '0') || 0;
+          const CREATE_ORDER_SCRIPT = 'https://script.google.com/macros/s/AKfycbxJpz_uMO1YuH5sCv9pAmbnztwpx_crZUaEjtXTyjl0T37uP7i4LubyBP62Xl0tdzeW_A/exec';
+          const APP_SCRIPT_URL = APP_SCRIPT; // For passing to CREATE_ORDER
 
-          // helper to append hidden inputs
-          function addHidden(name, value) {
-            const inp = document.createElement('input');
-            inp.type = 'hidden';
-            inp.name = name;
-            inp.value = value;
-            form.appendChild(inp);
+          const showSuccess = () => {
+            const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
+            successModal.show();
+            bookingsCache = null;
+            loadBookings();
+            setTimeout(() => { renderAartiCalendar(); }, 800);
+            setTimeout(() => { formWrap.remove(); }, 1200);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = 'Submit Booking';
+          };
+
+          if (donation > 0) {
+            // Payment required: navigate to CREATE_ORDER which handles full flow
+            msg.textContent = 'Redirecting to payment...';
+            
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'CREATE_ORDER';
+            form.appendChild(actionInput);
+
+            const saveScriptInput = document.createElement('input');
+            saveScriptInput.type = 'hidden';
+            saveScriptInput.name = 'saveBookingScript';
+            saveScriptInput.value = APP_SCRIPT_URL;
+            form.appendChild(saveScriptInput);
+
+            // Navigate to CREATE_ORDER in same window
+            // CREATE_ORDER will handle: order creation + checkout + payment verification + sheet save
+            form.action = CREATE_ORDER_SCRIPT;
+            form.method = 'POST';
+            form.target = '_self';
+            form.submit();
+
+          } else {
+            // No donation: save booking directly to sheet
+            msg.textContent = 'Saving your booking...';
+            
+            const statusInput = document.createElement('input');
+            statusInput.type = 'hidden';
+            statusInput.name = 'donationStatus';
+            statusInput.value = 'Not Paid';
+            form.appendChild(statusInput);
+
+            submitBookingToSheet({});
           }
 
-          // submit the form to the sheet using the iframe (preserves original behavior)
-          function submitToSheetAndHandleUI() {
-            if (!form.querySelector('[name="donationStatus"]')) addHidden('donationStatus', donation > 0 ? 'Paid' : 'Not Paid');
+          // Helper: submit all booking data to the sheet
+          function submitBookingToSheet(paymentData) {
+            // Listen for form response
             responseFrame.onload = function() {
-              const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
-              successModal.show();
-              bookingsCache = null;
-              loadBookings();
-              setTimeout(() => { renderAartiCalendar(); }, 800);
-              setTimeout(() => { formWrap.remove(); }, 1200);
-              submitBtn.disabled = false;
-              submitBtn.innerHTML = 'Submit Booking';
+              msg.textContent = '';
+              showSuccess();
             };
-            // fallback timeout
+
+            // Fallback timeout
             setTimeout(() => {
               if (submitBtn.disabled) {
-                const successModal = new bootstrap.Modal(document.getElementById('bookingSuccessModal'));
-                successModal.show();
-                bookingsCache = null;
-                loadBookings();
-                setTimeout(() => { renderAartiCalendar(); }, 800);
-                setTimeout(() => { formWrap.remove(); }, 1200);
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Submit Booking';
+                msg.textContent = '';
+                showSuccess();
               }
-            }, 5000);
-            form.submit();
-          }
+            }, 8000);
 
-          // If donation > 0, open Razorpay checkout first
-          if (donation > 0) {
-            // TODO: replace with your Razorpay Key ID (test or live)
-            const RAZORPAY_KEY_ID = 'rzp_test_SDVburyPkm4hM6';
-            const amountPaise = Math.round(donation * 100);
-            // STEP 1: create order first
-            fetch("https://script.google.com/macros/s/AKfycbxJpz_uMO1YuH5sCv9pAmbnztwpx_crZUaEjtXTyjl0T37uP7i4LubyBP62Xl0tdzeW_A/exec", {
-              method: "POST",
-              body: JSON.stringify({
-                action: "ONE_TIME",
-                amountPaise: amountPaise,
-                receipt: "AARTI_" + Date.now()
-              })
-            })
-            .then(res => res.json())
-            .then(order => {
-                  const options = {
-                    key: RAZORPAY_KEY_ID,
-                    amount: amountPaise,
-                    currency: 'INR',
-                    order_id: order.id,
-                    name: 'Shree Jugal Kishore Ji Temple',
-                    description: `${form.querySelector('input[name="aartiDate"]').value} - ${form.querySelector('input[name="slot"]').value}`,
-                    prefill: {
-                      name: form.querySelector('input[name="fullName"]').value || '',
-                      email: form.querySelector('input[name="emailId"]').value || '',
-                      contact: form.querySelector('input[name="mobile"]').value || ''
-                    },
-                    handler: function (response) {
-                      addHidden('razorpay_payment_id', response.razorpay_payment_id || '');
-                      addHidden('razorpay_order_id', response.razorpay_order_id || '');
-                      addHidden('razorpay_signature', response.razorpay_signature || '');
-                      addHidden('donationStatus', 'Paid');
-                      submitToSheetAndHandleUI();
-                    },
-                    modal: { ondismiss: function() {
-                      submitBtn.disabled = false;
-                      submitBtn.innerHTML = 'Submit Booking';
-                    }}
-                  };
-                  const rzp = new Razorpay(options);
-                  rzp.open();
-          });
-          } else {
-            // no payment required
-            addHidden('donationStatus', 'Not Paid');
-            submitToSheetAndHandleUI();
+            // Configure and submit form to SAVE_BOOKING script
+            form.target = 'aartiFormResponseFrame';
+            form.action = APP_SCRIPT;
+            form.method = 'POST';
+            form.submit();
           }
         });
 
