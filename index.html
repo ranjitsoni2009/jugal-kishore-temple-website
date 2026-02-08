@@ -367,7 +367,7 @@
       }
     }
 
-    const SHEET_URL = "https://script.google.com/macros/s/AKfycbw0JH3c4YzgryjjNZI6QmK8Rh-Dk9LBfGK6wOUrIA_kVq5vAYq9OZ499C4G3t9vd9pixQ/exec"; // replace with your sheet link
+    const APP_SCRIPT = "https://script.google.com/macros/s/AKfycbw0JH3c4YzgryjjNZI6QmK8Rh-Dk9LBfGK6wOUrIA_kVq5vAYq9OZ499C4G3t9vd9pixQ/exec"; // replace with your sheet link
 
     // Expected sheet column names (used as keys when sending data)
     // These must match the form field names AND the sheet header row
@@ -385,10 +385,10 @@
     
     console.log('Form will submit these sheet columns:', EXPECTED_SHEET_COLUMNS.join(', '));
 
-    console.log("Fetching booking data from:", SHEET_URL);
+    console.log("Fetching booking data from:", APP_SCRIPT);
     async function loadBookings() {
       try {
-        const res = await fetch(SHEET_URL);
+        const res = await fetch(APP_SCRIPT);
         const data = await res.json();
         console.log("data -->"+data);
         let html = '<ul class="list-group">';
@@ -566,7 +566,7 @@
       // show spinner by resetting cache only when forced externally; cache otherwise
       if (bookingsCache) return bookingsCache;
       try {
-        const resp = await fetch(SHEET_URL + '?_=' + Date.now());
+        const resp = await fetch(APP_SCRIPT + '?_=' + Date.now());
         const data = await resp.json();
         console.log('Fetched bookings for calendar:', data);
         const counts = {}; // counts[iso] = { Morning: n, Evening: n }
@@ -746,7 +746,7 @@
         
         formWrap.innerHTML = `
           <h5>Booking for ${escapeHtml(dateIso)} — ${escapeHtml(slot)}</h5>
-          <form id="aartiInlineForm" class="row g-2" action="${SHEET_URL}" method="POST" target="aartiFormResponseFrame">
+          <form id="aartiInlineForm" class="row g-2" action="${APP_SCRIPT}" method="POST" target="aartiFormResponseFrame">
 
             <div class="col-12 col-md-6">
               <label class="form-label">Full Name</label>
@@ -861,31 +861,44 @@
             // TODO: replace with your Razorpay Key ID (test or live)
             const RAZORPAY_KEY_ID = 'rzp_test_SDVburyPkm4hM6';
             const amountPaise = Math.round(donation * 100);
-            const options = {
-              key: RAZORPAY_KEY_ID,
-              amount: amountPaise,
-              currency: 'INR',
-              name: 'Shree Jugal Kishore Ji Temple',
-              description: `${form.querySelector('input[name="aartiDate"]').value} - ${form.querySelector('input[name="slot"]').value}`,
-              prefill: {
-                name: form.querySelector('input[name="fullName"]').value || '',
-                email: form.querySelector('input[name="emailId"]').value || '',
-                contact: form.querySelector('input[name="mobile"]').value || ''
-              },
-              handler: function (response) {
-                addHidden('razorpay_payment_id', response.razorpay_payment_id || '');
-                addHidden('razorpay_order_id', response.razorpay_order_id || '');
-                addHidden('razorpay_signature', response.razorpay_signature || '');
-                addHidden('donationStatus', 'Paid');
-                submitToSheetAndHandleUI();
-              },
-              modal: { ondismiss: function() {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Submit Booking';
-              }}
-            };
-            const rzp = new Razorpay(options);
-            rzp.open();
+            // STEP 1: create order first
+            fetch("https://script.google.com/macros/s/AKfycbxJpz_uMO1YuH5sCv9pAmbnztwpx_crZUaEjtXTyjl0T37uP7i4LubyBP62Xl0tdzeW_A/exec", {
+              method: "POST",
+              body: JSON.stringify({
+                action: "ONE_TIME",
+                amountPaise: amountPaise,
+                receipt: "AARTI_" + Date.now()
+              })
+            })
+            .then(res => res.json())
+            .then(order => {
+                  const options = {
+                    key: RAZORPAY_KEY_ID,
+                    amount: amountPaise,
+                    currency: 'INR',
+                    order_id: order.id,
+                    name: 'Shree Jugal Kishore Ji Temple',
+                    description: `${form.querySelector('input[name="aartiDate"]').value} - ${form.querySelector('input[name="slot"]').value}`,
+                    prefill: {
+                      name: form.querySelector('input[name="fullName"]').value || '',
+                      email: form.querySelector('input[name="emailId"]').value || '',
+                      contact: form.querySelector('input[name="mobile"]').value || ''
+                    },
+                    handler: function (response) {
+                      addHidden('razorpay_payment_id', response.razorpay_payment_id || '');
+                      addHidden('razorpay_order_id', response.razorpay_order_id || '');
+                      addHidden('razorpay_signature', response.razorpay_signature || '');
+                      addHidden('donationStatus', 'Paid');
+                      submitToSheetAndHandleUI();
+                    },
+                    modal: { ondismiss: function() {
+                      submitBtn.disabled = false;
+                      submitBtn.innerHTML = 'Submit Booking';
+                    }}
+                  };
+                  const rzp = new Razorpay(options);
+                  rzp.open();
+          });
           } else {
             // no payment required
             addHidden('donationStatus', 'Not Paid');
